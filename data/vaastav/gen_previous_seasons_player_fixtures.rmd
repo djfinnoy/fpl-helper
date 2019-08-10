@@ -1,0 +1,229 @@
+This notebook combines data files from https://github.com/vaastav/Fantasy-Premier-League
+into a single file that can be used for model training.
+Vaastav's repo is contains data scraped from the FPL api, it contains data for prior seasons (2016-19 used here).
+
+
+# Function for merging the `gw` csv files
+```{r}
+gen_compiled_gameweek_tbl <- function(root_path = ".") {
+  require(dplyr)
+  require(readr)
+  require(stringr)
+  require(purrr)
+  
+  # Define the folder paths for the gameweek csv files
+  paths <- paste0(
+    root_path, "/",
+    c("2016-17", "2017-18", "2018-19"), 
+    "/gws/"
+  )
+  
+  # Function for compiling gameweek csv files within a folder
+  read_csv_folder <- function(path) {
+    # File names of eligible csv files
+    files <- list.files(path) %>% 
+      map_lgl(., function(x) str_detect(x, "^gw\\d+")) %>% 
+      list.files(path)[.]
+  
+    # Read and compile the csv files
+    paste0(path, files) %>% 
+      map_dfr(., ~ suppressMessages(read_csv(.x,))) %>% 
+      mutate(
+        season = str_extract(path, "\\d+-\\d+"),
+        was_home = as.integer(was_home)
+      )
+  }
+  
+  # Read compile gw csv files 
+  paths %>% 
+    map_dfr(., ~read_csv_folder(.x)) %>% 
+    # Name is corrupt due to some encoding issue in gameweek csv files,
+    # we'll be using the name string from the `players_raw.csv` files instead
+    select(player_id = element, season, everything(), -name)
+}
+
+gen_compiled_gameweek_tbl()
+```
+
+# Function for creating a lookup table over player's `player_id` number across different seasons
+```{r}
+gen_id_lookup_tbl <- function(root_path = ".") {
+  require(dplyr)
+  require(readr)
+  require(stringr)
+  require(purrr)
+  
+  # Define the paths for the players_raw.csv files
+  files <- paste0(
+    root_path, "/", 
+    c("2016-17", "2017-18", "2018-19"), 
+    "/players_raw.csv"
+  )
+
+  # Function for reading, cleaning and modifying the raw csv files
+  clean_raw_player_data <- function(file) {
+    file %>%
+      read_csv(.) %>% 
+      mutate(name = paste(first_name, second_name)) %>% 
+      select(player_id = id, name, team_code, position = element_type)  %>% 
+      mutate(
+        season = str_extract(file, "\\d+-\\d+"),
+        position = case_when(
+          position == 1 ~ "GK",
+          position == 2 ~ "DEF",
+          position == 3 ~ "MID",
+          position == 4 ~ "FWD"
+        )
+      ) %>% 
+      group_by(name) %>% 
+      mutate(name_is_duplicate = n_distinct(player_id) > 1) %>% 
+      ungroup()
+  }
+  
+  # Apply cleaning function to each file, then merge them
+  files %>% 
+    map_dfr(., ~ suppressMessages(clean_raw_player_data(.x))) %>% 
+    # We need `name` to be unique in order to assign an id number that remains
+    # consistent across seasons, this creates problems for certain players.
+    # If the player's name is not unique for a given season, this player won't
+    # have a consistent cross-seasonal id number. The same problem occurs if
+    # a player's name changes between seasons. See Stoke's Bojan or Leicester's
+    # Danny Ward for examples of these problems.
+    mutate(name = ifelse(name_is_duplicate, paste(name, player_id), name)) %>% 
+    select(-name_is_duplicate)
+}
+
+gen_id_lookup_tbl()
+```
+
+# Function for creating a lookup table between a team's `team_code` and `team_name`
+```{r}
+gen_team_lookup_tbl <- function(root_path = "..") {
+  require(jsonlite)
+  require(dplyr)
+  require(tibble)
+  
+  # Use the `teams` dataset from 2018/19 as a starting point
+  fromJSON("./2018-19/raw.json")$teams %>% 
+    select(code, team_short_name = short_name, team_name = name) %>% 
+    # Manually add missing teams
+    bind_rows(
+      tribble(
+        ~code, ~team_short_name, ~team_name,
+        88, "HUL", "Hull",
+        25, "MID", "Middlesbrough",
+        56, "SUN", "Sunderland",
+        35, "WBA", "West Bromwich Albion",
+        80, "SWA", "Swansea City",
+        110, "STO", "Stoke City"
+      )
+  )
+}
+
+gen_team_lookup_tbl()
+```
+
+# Generate the combined 2016-2019 player fixtures dataset, with consistent id numbers across seasons (`xseason_id`)
+```{r}
+gen_vaastav_player_fixtures <- function(root_path = ".") {
+  require(dplyr)
+  require(tidyr)
+  
+  # Get the datasets defined above
+  player_fixtures = gen_compiled_gameweek_tbl(root_path)
+  id_lookup = gen_id_lookup_tbl(root_path)
+  team_lookup = gen_team_lookup_tbl(root_path)
+  
+  # Create a cross-seasonal overview of each player's various id numbers,
+  # and assign a consistent id number that remains the same across seaons
+  # Note: Assumes that `id_lookup` has no duplicates in the `name` column
+  cross_seasonal_player_id_tbl <- id_lookup %>% 
+    select(-team_code, -position) %>% 
+    spread(key = season, value = player_id) %>% 
+    mutate(xseason_id = row_number())
+  
+  # Start with the compiled gameweek data
+  player_fixtures %>% 
+    # Add `name` and `team_code` from players_raw csv files
+    left_join(
+      id_lookup,
+      by = c("season", "player_id")
+    ) %>%
+    # Add the cross-seasonal id numbers
+    left_join(
+      cross_seasonal_player_id_tbl %>% select(name, xseason_id),
+      by = "name"
+    ) %>% 
+    # Add team names
+    left_join(
+      team_lookup,
+      by = c("team_code" = "code")
+    ) %>% 
+    # Add opponent team names
+    {
+      data <- .
+      
+      # The `opponent_team` id values are based on the alphabetical ranking
+      # of team short names within each season.
+      # Start with creating an overview of each team's id (for `opponent_team`)
+      # for each season.
+      opponent_id_by_season <- data %>% 
+        select(season, temp = team_name, team_short_name) %>% 
+        distinct() %>% 
+        group_by(season) %>% 
+        arrange(team_short_name) %>% 
+        mutate(id = row_number()) %>% 
+        # Sometimes the alphabetical logic doesn't work
+        mutate(
+          id = ifelse(season == "2016-17" & temp == "Middlesbrough", 12, id),
+          id = ifelse(season == "2016-17" & temp == "Man Utd", 11, id),
+          id = ifelse(season == "2017-18" & temp == "Bournemouth", 2, id),
+          id = ifelse(season == "2017-18" & temp == "Brighton", 3, id),        
+          id = ifelse(season == "2018-19" & temp == "Bournemouth", 2, id),
+          id = ifelse(season == "2018-19" & temp == "Brighton", 3, id)
+        ) %>% 
+        select(-team_short_name)
+      
+      # Replace the `opponent_team` id value with team name
+      left_join(
+        data, opponent_id_by_season, by = c("season", "opponent_team" = "id")
+      ) %>% 
+        mutate(opponent_team = temp) %>% 
+        select(everything(), -temp)
+    } %>% 
+    # We get duplicates fixtures for players who have been loaned /
+    # transferred to a different team. A single fixture can be attributed
+    # to both teams. Not sure why. The following code removes the dupllicates
+    group_by(team_name, team_code, opponent_team, kickoff_time) %>% 
+    nest() %>% 
+    # Transfer / loan players with an erroneous `team_code` will end up
+    # in fixtures that don't exist. They can be identified by a low number
+    # of players (rows) present within the nested dataset.
+    mutate(nrow = map_int(data, ~ nrow(.x))) %>% 
+    filter(nrow > 11) %>% 
+    select(-nrow) %>% 
+    unnest() %>% 
+    # Finishing up
+    select(
+      player_id, xseason_id, name, season, team_code, team_name,
+      opponent_team, gameweek = round, everything(),
+      -fixture, -kickoff_time_formatted, -team_short_name, -loaned_in,
+      -loaned_out, -ea_index
+    ) %>% 
+    arrange(kickoff_time, name)
+}
+
+gen_vaastav_player_fixtures()
+```
+
+# Save the data to disk
+```{r}
+library(readr)
+library(jsonlite)
+
+write_file(
+  toJSON(gen_vaastav_player_fixtures(), "rows"),
+  "previous_seasons_player_fixtures.json"
+)
+```
+
