@@ -1,0 +1,91 @@
+```{r}
+library(tidyverse)
+library(purrr)
+
+source("./data/modelling/func.R")
+```
+```{r}
+gen_eval_latest(data_path = "./data", refresh = T)
+```
+
+```{r}
+compile_grand_unified_dataset <- function(data_path = "..") {
+  require(dplyr)
+  require(tidyr)
+  require(purrr)
+  require(readr)
+  require(lubridate)
+  
+  # Load the data
+  vaastav <- 
+    fromJSON(paste0(data_path, "/vaastav/previous_seasons_player_fixtures.json"))
+  fpl <- 
+    fromJSON(paste0(data_path, "/fpl/fpl_player_data_latest.json"))
+  elo <- 
+    fromJSON(paste0(data_path, "/clubelo.com/elo_data_latest.json"))
+
+  # Start with data from previous seasons
+  vaastav %>% 
+    # Add the `history` datasets from fpl
+    # ---
+    #
+    #
+    # ---
+    # Add `elo_strength`, and `opponent_elo_strength`
+    group_by(team_name, opponent_team, kickoff_time) %>% 
+    nest() %>% 
+    mutate(
+      date = as.Date(kickoff_time),
+      team_elo_strength = 
+        map2_dbl(team_name, date, ~elo_value_lookup(elo, .x, .y)),
+      opponent_elo_strength = 
+        map2_dbl(opponent_team, date, ~elo_value_lookup(elo, .x, .y))     
+    ) %>% 
+    # Finishing up
+    unnest() %>% 
+    ungroup() %>% 
+    select(
+      xseason_id, player_id, name, position, season, kickoff_time,
+      team_name, opponent_team, gameweek, everything(),
+      -date, -id, -team_a_score, -team_h_score
+    )
+}
+```
+
+```{r}
+x <- fpl$history[[6]]
+fpl
+y <- last(vaastav$season)
+
+```
+
+```{r}
+vaastav %>% 
+  left_join(.,
+    fpl %>% 
+      mutate(history = map2(history, season, function(x, y) {
+        # Team names need to be added
+        teams <- fpl %>%
+          select(team_code, team_name) %>% 
+          distinct()
+        
+        x %>%
+          # Prepare `fpl` style data for merging with vaastav
+          mutate(
+            season = last(y),
+            fixture_id = paste(fixture, season, sep = "/"),
+            opponent_team = map_chr(opponent_team, function(x) {
+              which(teams$team_code == x) %>% teams$team_name[.]
+            })
+          ) %>%
+          select(
+            player_id = element, season, gameweek = round, kickoff_time,
+            minutes, goals_scored, assists, clean_sheets, goals_conceded,
+            starts_with("penalties"), ends_with("cards"), saves, bonus,
+            bps, influence, creativity, threat, ict_index, selected,
+            starts_with("transfers")
+          )
+      }))
+  )
+```
+
