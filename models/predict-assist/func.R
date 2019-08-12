@@ -33,11 +33,9 @@ gen_assist_model_data <- function(data_path = "../../data") {
       assist = as.integer(assists > 0),
       assists_smooth = holt_exp_smoothing(assists),
       goals_scored_smooth = holt_exp_smoothing(goals_scored),
-      key_passes_smooth = holt_exp_smoothing(key_passes),
       threat_smooth = holt_exp_smoothing(threat),
       creativity_smooth = holt_exp_smoothing(creativity),
-      selected_smooth = holt_exp_smoothing(selected),
-      dribbles_smooth = holt_exp_smoothing(dribbles)
+      selected_smooth = holt_exp_smoothing(selected)
     ) %>% 
     ungroup() %>% 
     select(
@@ -100,8 +98,8 @@ gen_assist_model_predictions <- function(model_data) {
   features <- c(
     "assist",
     "team_elo_strength", "elo_strength_diff",
-    "assists_smooth", "key_passes_smooth", "threat_smooth",
-    "creativity_smooth", "selected_smooth", "dribbles_smooth",
+    "assists_smooth", "threat_smooth",
+    "creativity_smooth", "selected_smooth",
     "team_goals_scored_smooth", "team_ict_index_smooth", "opponent_threat_smooth"
   )
   

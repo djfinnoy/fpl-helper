@@ -157,8 +157,7 @@ gen_cs_model_predictions <- function(model_data) {
     "clean_sheet",
     "team_elo_strength", "elo_strength_diff",
     "was_home", "goals_conceded_smooth", "threat_smooth",
-    "bps_smooth", "defense_tackles_smooth",
-    "defense_tackled_smooth", "defense_saves_smooth",
+    "bps_smooth", "defense_saves_smooth",
     "opponent_goals_scored_smooth", "opponent_threat_smooth", 
     "opponent_ict_index_smooth"
   )

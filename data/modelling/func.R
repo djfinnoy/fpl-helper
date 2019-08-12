@@ -66,14 +66,64 @@ compile_grand_unified_dataset <- function(data_path = "..") {
     fromJSON(paste0(data_path, "/fpl/fpl_player_data_latest.json"))
   elo <- 
     fromJSON(paste0(data_path, "/clubelo.com/elo_data_latest.json"))
-
+  
+  # Team names need to be added to `fpl`
+  teams <- fpl %>%
+    select(team_code, team_name) %>% 
+    distinct()
+  
+  # xseason_id needs to be added to `fpl`
+  xseason_table <- vaastav %>% 
+    select(xseason_id, name) %>% 
+    distinct()
+  
+  new_players <- fpl %>% 
+    left_join(., xseason_table, by = "name") %>% 
+    select(xseason_id, name) %>% 
+    distinct() %>% 
+    filter(is.na(xseason_id)) %>% 
+    arrange(name) %>% 
+    mutate(xseason_id = max(xseason_table$xseason_id) + row_number())
+  
+  xseason_table <- rbind(xseason_table, new_players) %>% 
+    arrange(xseason_id)
+  
   # Start with data from previous seasons
   vaastav %>% 
     # Add the `history` datasets from fpl
-    # ---
-    #
-    #
-    # ---
+    bind_rows(.,
+              fpl %>%
+                mutate(
+                  xseason_id = map_int(name, function(x) {
+                    which(xseason_table$name == x) %>% xseason_table$xseason_id[.]
+                  }),
+                  history = map(history, function(x) {
+                    x %>%
+                      # Prepare `fpl` style data for merging with vaastav
+                      mutate(
+                        season = map_chr(kickoff_time, ~get_season(as.Date(.x))),
+                        fixture_id = paste(fixture, season, sep = "/"),
+                        was_home = as.integer(was_home),
+                        influence = as.numeric(influence),
+                        creativity = as.numeric(creativity),
+                        threat = as.numeric(threat),
+                        ict_index = as.numeric(ict_index)
+                      ) %>%
+                      select(
+                        season, gameweek = round, kickoff_time, fixture_id,
+                        opponent_team, total_points, value, was_home,
+                        minutes, assists, clean_sheets, saves, bonus,
+                        starts_with("penalties"), ends_with("cards"), contains("goals"),
+                        bps, influence, creativity, threat, ict_index, selected,
+                        starts_with("transfers"), contains("_score")
+                      )
+                  })
+                ) %>% 
+                select(
+                  player_id, xseason_id, name, position, team_code, team_name, history
+                ) %>% 
+                unnest()       
+    ) %>% 
     # Add `elo_strength`, and `opponent_elo_strength`
     group_by(team_name, opponent_team, kickoff_time) %>% 
     nest() %>% 
@@ -88,9 +138,9 @@ compile_grand_unified_dataset <- function(data_path = "..") {
     unnest() %>% 
     ungroup() %>% 
     select(
-      xseason_id, player_id, name, position, season, kickoff_time,
+      xseason_id, player_id, name, position, season, kickoff_time, 
       team_name, opponent_team, gameweek, everything(),
-      -date, -id #-team_a_score, -team_h_score
+      -date, -id, -team_a_score, -team_h_score
     )
 }
 

@@ -46,10 +46,8 @@ fetch_fpl_player_data <- function(url = "https://fantasy.premierleague.com/api/"
       fixtures = map(element_summary, function(x) {
         x$fixtures %>% 
           mutate(
-            kickoff_time = map_chr(kickoff_time, function(y) {
-              str_replace(y, "T", " ") %>% 
-                str_replace(., "Z", "")
-            }) %>% as.POSIXct(),
+            kickoff_time = kickoff_time %>% 
+              str_replace("T", " ") %>% str_replace("Z", ""),
             team_h = map_chr(team_h, function(x) {
               teams$team_name[which(teams$id == x)]
             }),
@@ -62,7 +60,16 @@ fetch_fpl_player_data <- function(url = "https://fantasy.premierleague.com/api/"
           ) %>% 
           arrange(kickoff_time)
       }),
-      history = map(element_summary, function(x) x$history)
+      history = map(element_summary, function(x) {
+        x$history %>% 
+          mutate(
+            kickoff_time = kickoff_time %>% 
+              str_replace("T", " ") %>% str_replace("Z", ""),
+            opponent_team = map_chr(opponent_team, function(x) {
+              which(teams$id == x) %>% teams$team_name[.]
+            })
+          )
+      })
     ) %>% 
     select(-element_summary)
   

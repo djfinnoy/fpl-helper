@@ -31,7 +31,7 @@ upcomingPlayerFixturesPlotsUI <- function(id) {
     ),  # End fluidRow
     fluidRow(
       box(
-        title = "Goal / Assist / Clean sheet probabilities",
+        title = "Goal / Assist / Clean sheet probabilities in upcoming fixtures",
         status = "primary",
         width = 12,
         column(width = 4, plotlyOutput(outputId = ns("goal_prob_barplot"))),
@@ -147,7 +147,7 @@ upcomingPlayerFixturesPlots <- function(input, output, session, data1, data2, da
     p <- data %>% 
       mutate(prob := !!sym(var)) %>% 
       ggplot(aes(y = prob, x = gameweek, fill = name)) +
-      labs(x = "Gameweek", y = "") +
+      labs(x = str_replace(main_var, ": ", ""), y = "") +
       scale_x_discrete() +
       scale_y_continuous(
         limits = c(0, 0.7), breaks = seq(0, 0.7, 0.1), labels = scales::percent_format(accuracy = 1)
