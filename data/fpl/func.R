@@ -7,11 +7,11 @@ fetch_fpl_player_data <- function(url = "https://fantasy.premierleague.com/api/"
   require(jsonlite)
 
   # Lookup table for team names
-  teams <- fromJSON(paste0(url, "bootstrap-static"))$teams %>% 
+  teams <- fromJSON(paste0(url, "bootstrap-static/"))$teams %>% 
     select(team_name = name, code, id)
   
   # Player summaries and fixtures, will return latest player summary
-  players <- fromJSON(paste0(url, "bootstrap-static"))$elements %>% 
+  players <- fromJSON(paste0(url, "bootstrap-static/"))$elements %>% 
     # Fix names, position and current status
     mutate(
       name = paste(first_name, second_name),
