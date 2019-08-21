@@ -1,64 +1,6 @@
 ```{r}
-library(tidyverse)
-library(purrr)
-library(jsonlite)
-
-source("./data/modelling/func.R")
-source("./data/shiny/func.R")
-```
-```{r}
-update_modelling_data("./data")
+source("./data/modelling/modelling.R")
+gen_player_fixtures_complete("./data")
 ```
 
-```{r}
-gen_shiny_data("./data", F)
-```
-
---------------------------------------------------------------------------------
-
-```{r}
-gu <- fromJSON("./data/modelling/grand_unified_latest.json")
-
-tail(gu, 5)
-```
-
-```{r}
-df1 <- gu %>% 
-  select(
-    kickoff_time, xseason_id, name, team_name, opponent_team,
-    minutes, bps, threat, ict_index, total_points, value
-  )
-```
-
-```{r}
-# Fientlig instillt
-entry_id <- 692764
-
-```
-
-
-```{r}
-get_fpl_team <- function(entry_id) {
-  require(jsonlite)
-  
-  base_url <- "https://fantasy.premierleague.com/api/"
-  bootstrap <- fromJSON(paste0(base_url, "bootstrap-static/")) 
-  entry_url <- paste0(base_url, "entry/", entry_id, "/event/")
-  max_gameweek <- bootstrap$events %>% filter(finished) %>% pull(id) %>% max()
-  
-  t <- fromJSON(paste0(entry_url, "2/picks/"))
-  
-  tibble(gameweek = 1:max_gameweek) %>% 
-    mutate(
-      picks = map(gameweek, function(x) {
-        fromJSON(paste0(entry_url, x, "/picks/"))$picks
-      })
-    )
-}
-```
-
-```{r}
-str(t)
-t$picks
-```
 
