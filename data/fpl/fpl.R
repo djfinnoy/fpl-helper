@@ -44,13 +44,13 @@ gen_fpl_player_data <- function(data_path = "..") {
               kickoff_time,
               format = "%Y-%m-%dT%H:%M:%S",
               tz = "UTC"
-            )
-          ) %>% 
-          # Fix numerical variables read as strings
-          mutate_at(
-            vars(influence, creativity, threat, ict_index),
-            list(~as.numeric)
-          )
+            ),
+            # Fix numerical variables read as strings
+            influence = as.numeric(influence),
+            creativity = as.numeric(creativity),
+            threat = as.numeric(threat),
+            ict_index = as.numeric(ict_index)
+          ) 
       })
     ) %>% 
     # Drop variables we no longer need

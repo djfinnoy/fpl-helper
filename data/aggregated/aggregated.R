@@ -1,14 +1,16 @@
-# Function for merging and cleaning the `vaastav` and FPL `players` datasets,
+## Function for merging and cleaning the `vaastav` and FPL `players` datasets,
 # leaving us with a complete overview over each player's history.
 # Upcoming fixtures are included for convenience, note the `finished` column.
-# ------------------------------------------------------------------------------
+# ==============================================================================
 gen_player_fixtures_complete <- function(data_path = "..", refresh = F) {
   require(dplyr)
   require(purrr)
+  require(tidyr)
   require(stringr)
   require(lubridate)
   
   # Load the FPL players dataset
+  # ----------------------------------------------------------------------------
   players_file_path <- paste0(data_path, "/fpl/players.RDS")
   if (refresh & file.exists(players_file_path)) 
     file.remove(paste0(data_path, "/fpl/players.RDS"))
@@ -16,6 +18,7 @@ gen_player_fixtures_complete <- function(data_path = "..", refresh = F) {
     source(paste0(data_path, "/fpl/fpl.R"))
     gen_fpl_player_data(data_path)
   }
+  
   players <- readRDS(players_file_path) %>% 
     # Pre-merge cleaning operations
     mutate(
@@ -26,6 +29,7 @@ gen_player_fixtures_complete <- function(data_path = "..", refresh = F) {
     ) 
   
   # Create a dataset on upcoming fixtures in the same format as `history`
+  # ---------------------------------------------------------------------------- 
   upcoming_fixtures <- players %>% 
     select(-history) %>% 
     unnest() %>% 
@@ -39,11 +43,13 @@ gen_player_fixtures_complete <- function(data_path = "..", refresh = F) {
     )
   
   # Load the vaastav datasets
+  # ----------------------------------------------------------------------------
   vaastav_file_path <- paste0(data_path, "/vaastav/vaastav.RDS")
   if (!file.exists(vaastav_file_path)) {
     source(paste0(data_path, "/vaastav/vaastav.R"))
     gen_vaastav_data(data_path)
   }
+  
   vaastav <- readRDS(vaastav_file_path) %>% 
     # Remove variables not present in the `players` dataset
     mutate(
@@ -54,8 +60,42 @@ gen_player_fixtures_complete <- function(data_path = "..", refresh = F) {
     )
     
   team_ids <- readRDS(paste0(data_path, "/vaastav/team_ids.RDS"))
+  
+  # Load clubelo data
+  # ----------------------------------------------------------------------------
+  elo_file_path <- paste0(data_path, "/clubelo/team_elo_data.RDS")
+  if (refresh & file.exists(elo_file_path))
+    file.remove(elo_file_path)
+  if (!file.exists(elo_file_path)) {
+    source(paste0(data_path, "/clubelo/clubelo.R"))
+    gen_team_elo_data(data_path)
+  }
+  
+  team_elo_data <- readRDS(elo_file_path)
+  
+  # Function for retrieving elo scores for a given team on a given date
+  elo_value_lookup <- function(team, date) {
+    require(dplyr)
+    require(purrr)
+    require(lubridate)
+    
+    # Get the index of the desired value
+    index <- which(
+      team_elo_data$team == team & 
+      date %within% interval(team_elo_data$from, team_elo_data$to)
+    )
+    
+    # In case we don't have an elo score for a future fixture, use latest score
+    if (length(index) == 0) {
+      index <- which(team_elo_data$team == team) %>% max()
+    }
+    
+    # Return the score
+    team_elo_data$elo[index]
+  }
  
   # Merge and clean
+  # ----------------------------------------------------------------------------
   player_fixtures_complete <- vaastav %>%
     # Merge `vaastav` and `players`
     left_join(
@@ -97,27 +137,39 @@ gen_player_fixtures_complete <- function(data_path = "..", refresh = F) {
     rename(opponent_team_id = opponent_team) %>% 
     left_join(
       team_ids %>% 
-        select(season, opponent_team_id = id, opponent_team = name),
+        select(season, opponent_team_id = id, opponent_team = team),
       by = c("season", "opponent_team_id")
     ) %>% 
     select(-opponent_team_id) %>% 
-    # Add a `team_name` variable for indicating what team a player belongs to
+    # Add a `team` variable for indicating what team a player belongs to
     left_join(
       {. -> x; x %>% 
         group_by(season, fixture, was_home) %>% 
-        summarize(team_name = first(opponent_team)) %>% 
+        summarize(team = first(opponent_team)) %>% 
         mutate(was_home = !was_home)},
       by = c("season", "fixture", "was_home")
+    ) %>%
+    # Add clubelo strength variables
+    group_by(team, opponent_team, kickoff_time) %>% 
+    nest() %>% 
+    mutate(
+      team_elo_strength = 
+        map2_dbl(team, kickoff_time, ~elo_value_lookup(.x, .y)),
+      opponent_elo_strength = 
+        map2_dbl(opponent_team, kickoff_time, ~elo_value_lookup(.x, .y))
     ) %>% 
+    unnest() %>% 
+    ungroup() %>% 
     # Order columns
     select(
-      player_code, name, kickoff_time, season, team_name, opponent_team, position,
+      player_code, name, kickoff_time, season, team, opponent_team, position,
       everything(), -element_type, -element
     ) %>% 
     # Order rows
-    arrange(season, kickoff_time, team_name)
+    arrange(season, kickoff_time, team)
     
   # Save the dataset to disk
-  file_path <- paste0(data_path, "/modelling/player_fixtures_complete.RDS")
+  # ----------------------------------------------------------------------------
+  file_path <- paste0(data_path, "/aggregated/player_fixtures_complete.RDS")
   saveRDS(player_fixtures_complete, file_path)
 }

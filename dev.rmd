@@ -1,6 +1,23 @@
 ```{r}
-source("./data/modelling/modelling.R")
-gen_player_fixtures_complete("./data")
+library(tidyverse)
+
+#source("./data/aggregated/aggregated.R")
+#gen_player_fixtures_complete("./data", F)
+
+pfc <- readRDS("./data/aggregated/player_fixtures_complete.RDS")
+
+#data_path <- "./data"
 ```
 
+
+```{r}
+pfc 
+
+```
+
+```{r}
+```
+```{r}
+
+```
 

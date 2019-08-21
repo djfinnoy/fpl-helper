@@ -19,34 +19,33 @@ gen_team_elo_data <- function(
   
   # Create a team strength overview (over time)
   team_elo_data <- team_ids %>% 
-    select(name) %>% 
+    select(team) %>% 
     distinct() %>% 
     mutate(
       # Convert from FPL to clubelo.com naming convention
       elo_name = case_when(
-        name == "West Bromwich Albion" ~ "WestBrom",
-        name == "Man Utd" ~ "ManUnited",
-        name == "Spurs" ~ "Tottenham",
-        name == "Stoke City" ~ "Stoke",
-        name == "Swansea City" ~ "Swansea",
-        name == "Sheffield Utd" ~ "SheffieldUnited",
-        name %>% str_detect(" ") ~ str_replace(name, " ", ""),
-        TRUE ~ name            
+        team == "West Bromwich Albion" ~ "WestBrom",
+        team == "Man Utd" ~ "ManUnited",
+        team == "Spurs" ~ "Tottenham",
+        team == "Stoke City" ~ "Stoke",
+        team == "Swansea City" ~ "Swansea",
+        team == "Sheffield Utd" ~ "SheffieldUnited",
+        team %>% str_detect(" ") ~ str_replace(team, " ", ""),
+        TRUE ~ team            
       ),
       # Download data from clubelo.com
       data = map(elo_name, function(x) {
         paste0(elo_url, x) %>% 
           read_csv(., col_types = cols()) %>% 
-          mutate(team_name = x) %>% 
           filter(From %within% interval(ymd(from), ymd(to))) %>% 
-          select(team_name, elo = Elo, from = From, to = To)       
+          select(elo = Elo, from = From, to = To)       
       })
     ) %>% 
-  # Convert from nested to long format
-  pull(data) %>% 
-  map_dfr(., ~bind_rows(.x)) %>% 
-  # Order rows
-  arrange(team_name, from, to)
+    # Convert from nested to long format
+    select(team, data) %>% 
+    unnest() %>% 
+    # Order rows
+    arrange(team, from, to)
   
   # Save dataset to disk
   file_path <- paste0(data_path, "/clubelo/team_elo_data.RDS")

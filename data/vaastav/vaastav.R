@@ -76,13 +76,13 @@ gen_vaastav_data <- function(
 
 # Function for creating a complete overview of team names and id numbers
 # ------------------------------------------------------------------------------
-gen_team_name_id_lookup <- function(data_path = "..") {
+gen_team_id_lookup <- function(data_path = "..") {
   require(dplyr)
   require(tibble)
   
   # Team name / code overview (update when new teams enter PL)
   team_names <- tribble(
-    ~code, ~name,
+    ~code, ~team,
     1, "Man Utd",
     3, "Arsenal",
     4, "Newcastle",
