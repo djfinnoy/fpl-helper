@@ -109,7 +109,13 @@ gen_player_fixtures_complete <- function(data_path = "..", refresh = F) {
         else return(bind_rows(x, y))
       })
     ) %>% 
-    select(-current_season_history) %>% 
+    select(-current_season_history) %>%
+    # Add players not present in `vaastav`
+    bind_rows(.,
+      players %>%
+        select(player_code, name, history) %>% 
+        filter(!player_code %in% vaastav$player_code)
+    ) %>% 
     # Convert from nested to long
     unnest() %>% 
     # Add a `finished` column before adding `upcoming_fixtures`
@@ -163,7 +169,7 @@ gen_player_fixtures_complete <- function(data_path = "..", refresh = F) {
     # Order columns
     select(
       player_code, name, kickoff_time, season, team, opponent_team, position,
-      everything(), -element_type, -element
+      everything(), -element_type
     ) %>% 
     # Order rows
     arrange(season, kickoff_time, team)
@@ -172,4 +178,130 @@ gen_player_fixtures_complete <- function(data_path = "..", refresh = F) {
   # ----------------------------------------------------------------------------
   file_path <- paste0(data_path, "/aggregated/player_fixtures_complete.RDS")
   saveRDS(player_fixtures_complete, file_path)
+}
+
+
+
+# Function for downloading data for certain leagues from the FPL API
+# ==============================================================================
+gen_fantasy_league_data <- function(data_path = "..") {
+  require(dplyr)
+  require(purrr)
+  require(stringr)
+  require(jsonlite)
+  
+  # Evaluate whether we need to refresh `player_fixtures_complete`
+  # ----------------------------------------------------------------------------
+  base_url <- "https://fantasy.premierleague.com/api/"
+  last_round <- fromJSON(paste0(base_url, "bootstrap-static/"))$events %>% 
+    filter(finished) %>% 
+    pull(id) %>% 
+    max()
+  
+  player_fixtures <- 
+    readRDS(paste0(data_path, "/aggregated/player_fixtures_complete.RDS")) %>% 
+    # Only keep the current season
+    filter(season == last(season))  # Requires chronological ordering
+ 
+  refresh <- last_round != player_fixtures %>% 
+    filter(finished) %>% 
+    pull(round) %>% 
+    max()
+  
+  # Refresh `player_fixtures if needed
+  # ---------------------------------------------------------------------------- 
+  if(refresh) {
+    source(paste0(data_path, "/aggregated/aggregated.R"))
+    gen_player_fixtures_complete(data_path, refresh = T)
+    
+    player_fixtures <- 
+      readRDS(paste0(data_path, "/aggregated/player_fixtures_complete.RDS")) %>% 
+      # Only keep the current season
+      filter(season == last(season)) 
+  }
+  
+  # Function for downloading data for an individual team
+  # ----------------------------------------------------------------------------
+  get_fantasy_team_data <- function(entry_id) {
+    require(tibble)
+    
+    # Define URLs
+    entry_url <- paste0(base_url, "entry/", entry_id, "/")
+    
+    # Download fantasy team data for `entry_id`
+    tibble(round = 1:last_round) %>% 
+      mutate(
+        # Get team name
+        name = fromJSON(entry_url)$name,
+        # Get data on players picked for each completed round
+        picks = map(round, function(x) {
+          # Download the team's dataset
+          fromJSON(paste0(entry_url, "event/", x, "/picks/"))$picks %>% 
+            # Preprocessing
+            mutate(
+              round = x,
+              bench = position >= 12
+            ) %>% 
+            select(
+              element, round, bench, 
+              captain = is_captain, vice_captain = is_vice_captain           
+            ) %>% 
+            # Add data from `player_fixtures`
+            left_join(
+              player_fixtures %>% 
+                select(
+                  element, round,
+                  name, position, value, team, opponent_team,
+                  total_points, minutes, goals_scored, assists, clean_sheets,
+                  bps, ict_index, threat, influence, creativity, selected
+                ),
+              by = c("element", "round")
+            )
+        })
+      )
+  }
+  
+  # Function for calculating Return on Investment for a given team
+  # ---------------------------------------------------------------------------- 
+  get_player_roi <- function(team_data) {
+    team_data %>% 
+      pull(picks) %>% 
+      map_dfr(., ~bind_rows(.x)) %>% 
+      group_by(element) %>% 
+      summarize(
+        name = first(name),
+        position = first(position),
+        value = first(value) / 10, # Might not reflect the actual purchasing value
+        rounds = n(),
+        total_points = sum(total_points),
+        bps = sum(bps)
+      ) %>%
+      mutate(
+        points_roi = total_points / (value * rounds),
+        bps_roi = bps / (value * rounds)
+      ) %>% 
+      ungroup() %>% 
+      arrange(-points_roi, -bps_roi)
+  }
+  
+  # Get league data
+  # ----------------------------------------------------------------------------
+  leagues_data_path <- paste0(data_path, "/fpl/leagues/")
+  files <- list.files(leagues_data_path)  # Files created manually to avoid auth
+  leagues <- tibble(files) %>% 
+    mutate(
+      names = str_replace(files, ".RDS", ""),
+      entries = map(files, function(x) {
+        paste0(leagues_data_path, x) %>% 
+          readRDS(.) %>% 
+          mutate(
+            data = map(entry, ~get_fantasy_team_data(.x)),
+            roi = map(data, ~get_player_roi(.x))
+          )
+      })
+    )
+  
+  # Save to disk
+  # ----------------------------------------------------------------------------
+  saveRDS(leagues, paste0(data_path, "/aggregated/my_leagues.RDS"))
 }
