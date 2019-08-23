@@ -166,6 +166,16 @@ gen_player_fixtures_complete <- function(data_path = "..", refresh = F) {
     ) %>% 
     unnest() %>% 
     ungroup() %>% 
+    mutate(
+      # Remove goal / assist / clean sheet effect from BPS
+      bps2 = bps - 
+        (goals_scored * case_when(
+          position %in% c("GK", "DEF") ~ 12,
+          position == "MID" ~ 18,
+          position == "FWD" ~ 24)) -
+        (assists * 9) - 
+        ifelse(position == "DEF" & clean_sheets == 1, 12, 0)
+    ) %>% 
     # Order columns
     select(
       player_code, name, kickoff_time, season, team, opponent_team, position,
