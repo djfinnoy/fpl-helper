@@ -5,7 +5,8 @@ gen_goal_model_data <- function(data_path = "../../data") {
   require(tidyr)
   
   # Load required home-made functions
-  source("../func.R")
+  func_path <- paste0(data_path, "/../models/func.R")
+  source(func_path)
   
   # Load data
   player_fixtures <- 
@@ -40,7 +41,7 @@ gen_goal_model_data <- function(data_path = "../../data") {
       # Features
       goal, contains("elo_"), ends_with("_smooth")
     ) %>% 
-    drop_na(-goal)  # Not known for upcoming fixtures
+    drop_na(-goal, -minutes)  # Not known for upcoming fixtures
   
   team_features <- player_fixtures %>% 
     filter(sum(finished) >= 3) %>% 

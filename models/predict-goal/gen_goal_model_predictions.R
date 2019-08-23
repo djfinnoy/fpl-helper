@@ -6,7 +6,14 @@ gen_goal_model_predictions <- function(model_data) {
   require(xgboost)
   
   # Variables used by the model
-  features <- c()
+  features <- c(
+    "goal",
+    "elo_strength_diff", "goals_smooth", 
+    "bps2_smooth", "creativity_smooth", "influence_smooth", "ict_index_smooth",
+    "minutes_smooth", "team_goals_scored_smooth",
+    "team_bps2_smooth", "opponent_goals_conceded_smooth",
+    "opponent_ict_index_smooth", "opponent_bps2_smooth"
+  )
   
   # Dataset for training the model
   train <- model_data %>% 
