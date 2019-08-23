@@ -98,7 +98,7 @@ gen_player_fixtures_complete <- function(data_path = "..", refresh = F) {
   # ----------------------------------------------------------------------------
   player_fixtures_complete <- vaastav %>%
     # Merge `vaastav` and `players`
-    left_join(
+    full_join(
       players %>% select(player_code, current_season_history = history),
       by = "player_code"
     ) %>% 
@@ -110,12 +110,6 @@ gen_player_fixtures_complete <- function(data_path = "..", refresh = F) {
       })
     ) %>% 
     select(-current_season_history) %>%
-    # Add players not present in `vaastav`
-    bind_rows(.,
-      players %>%
-        select(player_code, name, history) %>% 
-        filter(!player_code %in% vaastav$player_code)
-    ) %>% 
     # Convert from nested to long
     unnest() %>% 
     # Add a `finished` column before adding `upcoming_fixtures`
