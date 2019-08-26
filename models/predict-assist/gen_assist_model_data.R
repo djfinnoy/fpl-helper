@@ -1,9 +1,10 @@
 # Function for generating the dataset that will be used by our model
 # -----------------------------------------------------------------------------
-gen_goal_model_data <- function(data_path = "../../data") {
+gen_assist_model_data <- function(data_path = "../../data") {
   require(dplyr)
   require(tidyr)
   
+    
   # Load required home-made functions
   func_path <- paste0(data_path, "/../models/func.R")
   source(func_path)
@@ -24,24 +25,24 @@ gen_goal_model_data <- function(data_path = "../../data") {
     # Drop players with less than 3 recorded fixtures
     filter(sum(finished) >= 3) %>% 
     mutate(
-      goal = as.integer(goals_scored > 0),
+      assist = as.integer(assists > 0),
       # Smoothing
-      goals_smooth = holt_exp_smoothing(threat),
+      assists_smooth = holt_exp_smoothing(assists),
       bps2_smooth = holt_exp_smoothing(bps2),
+      threat_smooth = holt_exp_smoothing(threat),
       creativity_smooth = holt_exp_smoothing(creativity),
       influence_smooth = holt_exp_smoothing(influence),
-      ict_index_smooth = holt_exp_smoothing(ict_index),
       minutes_smooth = holt_exp_smoothing(minutes)
     ) %>% 
     ungroup() %>% 
     select(
       # Helper variables
-      player_code, name, position, finished, kickoff_time, 
-      minutes, team, opponent_team, season, round, 
+      player_code, name, position, finished, kickoff_time,
+      minutes, team, opponent_team, season, round,
       # Features
-      goal, contains("elo_"), ends_with("_smooth")
+      assist, contains("elo_"), ends_with("_smooth")
     ) %>% 
-    drop_na(-goal, -minutes)  # Not known for upcoming fixtures
+    drop_na(-assist, -minutes)
   
   team_features <- player_fixtures %>% 
     filter(sum(finished) >= 3) %>% 
@@ -50,7 +51,7 @@ gen_goal_model_data <- function(data_path = "../../data") {
       team_goals_scored = sum(goals_scored),
       team_goals_conceded = max(goals_conceded),
       team_threat = sum(threat),
-      team_ict_index = sum(ict_index),
+      team_ict_index = sum(ict_index), 
       team_bps2 = sum(bps2)
     ) %>% 
     arrange(team, kickoff_time) %>% 
@@ -63,10 +64,11 @@ gen_goal_model_data <- function(data_path = "../../data") {
       team_bps2_smooth = holt_exp_smoothing(team_bps2)
     ) %>% 
     ungroup() %>% 
-    select(team, kickoff_time, ends_with("smooth")) %>% 
-    drop_na()
+    select(
+      team, kickoff_time, ends_with("_smooth")
+    )
   
-  model_data <- player_features %>% 
+    model_data <- player_features %>% 
     left_join(team_features, by = c("team", "kickoff_time")) %>% 
     left_join(
       team_features %>% 
@@ -80,6 +82,6 @@ gen_goal_model_data <- function(data_path = "../../data") {
     ) %>% 
     filter(is.na(minutes) | minutes > 0) %>% 
     select(-minutes)
-  
-  return(model_data)
+    
+    return(model_data)
 }

@@ -1,0 +1,114 @@
+```{r}
+library(tidyverse)
+library(lubridate)
+library(mlr)
+library(mlrHyperopt)
+library(xgboost)
+```
+
+# Gen model data
+```{r}
+source("./gen_assist_model_data.R")
+model_data <- gen_assist_model_data() %>% 
+  filter(finished)
+```
+
+
+# `mlr` task and validation strategy
+```{r}
+train <- which(model_data$kickoff_time %>% year() < 2019)
+test <- which(model_data$kickoff_time %>% as.Date() %within% interval("2019-01-01", "2019-03-31"))
+validation <- which(model_data$kickoff_time %>% as.Date() >= "2019-04-01")
+
+# Blocking by team because of annoying CV errors when blocking by `player_code`,
+# not optimal, but probably good enough
+blocker <- factor(model_data$team)
+
+# Features
+features <- c(
+  "assist",
+  "elo_strength_diff", 
+  "assists_smooth", "bps2_smooth", "creativity_smooth", 
+  "influence_smooth", "minutes_smooth", 
+  "team_goals_scored_smooth", "team_bps2_smooth", 
+  "opponent_goals_conceded_smooth", "opponent_ict_index_smooth", 
+  "opponent_bps2_smooth"
+)
+
+task_data <- model_data %>% 
+  select(features) %>% 
+  as.data.frame()
+
+task <- makeClassifTask(
+  data = task_data,
+  target = "assist",
+  positive = 1,
+  blocking = blocker
+)
+
+train_task <- subsetTask(task, train)
+test_task <- subsetTask(task, test)
+validation_task <- subsetTask(task, validation)
+```
+
+# Model tuning
+```{r}
+xgb_learner <- makeLearner(
+  "classif.xgboost",
+  predict.type = "prob",
+  eval_metric = "auc",
+  objective = "binary:logistic",
+  eta = 0.0258,
+  nrounds = 118,
+ # max_depth = 4,
+ # colsample_bytree = 0.539,
+ # min_child_weight = 19.5,
+ # subsample = 0.822,
+ # alpha = 6.094763,
+ # lambda = 6.042612,
+ # gamma = 4.822022,
+ # early_stopping_rounds = 24
+)
+
+autotune_config <- makeParConfig(
+  par.set = makeParamSet(
+#    makeNumericParam("eta", -2, -0.5, trafo = function(x) 10 ^ x),
+#    makeIntegerParam("nrounds", 20, 700)
+    makeIntegerParam("max_depth", 3, 15),
+    makeNumericParam("min_child_weight", 1, 50)
+  )
+)
+
+autotune_res <- hyperopt(
+  task = train_task,
+  learner = xgb_learner,
+  par.config = autotune_config
+)
+
+autotuned_learner <- xgb_learner %>% 
+  setHyperPars(par.vals = autotune_res$x)
+
+cv_res <- resample(
+  learner = autotuned_learner,
+  #learner = xgb_learner,
+  task = train_task,
+  resampling = makeResampleDesc("CV", blocking.cv = T, fixed = T, predict = "both"),
+  measures = list(auc, setAggregation(auc, train.mean))
+)
+```
+
+# Check feature importance
+```{r}
+model <- train(xgb_learner, train_task)
+#model <- train(autotuned_learner, train_task)
+model %>% getFeatureImportance()
+```
+
+# Check validation scheme
+```{r}
+test_preds <- predict(model, test_task)
+performance(test_preds, measure = auc)
+model <- train(xgb_learner, subsetTask(task, c(train, test)))
+validation_preds <- predict(model, validation_task)
+performance(validation_preds, measure = auc)
+```
