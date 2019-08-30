@@ -99,17 +99,20 @@ gen_player_fixtures_complete <- function(data_path = "..", refresh = F) {
   player_fixtures_complete <- vaastav %>%
     # Merge `vaastav` and `players`
     full_join(
-      players %>% select(player_code, current_season_history = history),
+      players %>% select(player_code, name, current_season_history = history),
       by = "player_code"
     ) %>% 
-    # Merge the `history` columns
+    # Merge the `history` and `name` columns
     mutate(
       history = map2(history, current_season_history, function(x, y) {
         if(is.null(y)) return(x)
         else return(bind_rows(x, y))
-      })
+      }),
+      # There are two name variables after the join, necessary to cover players
+      # not present in Vaastav. Here we collapse them back to as single column
+      name = ifelse(is.na(name.x), name.y, name.x)
     ) %>% 
-    select(-current_season_history) %>%
+    select(-current_season_history, name.x, name.y) %>%
     # Convert from nested to long
     unnest() %>% 
     # Add a `finished` column before adding `upcoming_fixtures`

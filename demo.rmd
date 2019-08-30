@@ -6,9 +6,8 @@ Use the `refresh` option to download the latest API data.
 
 ```{r}
 source("./data/aggregated/aggregated.R")
-gen_player_fixtures_complete("./data", F)
+gen_player_fixtures_complete("./data", refresh = T)
 player_fixtures <- readRDS("./data/aggregated/player_fixtures_complete.RDS")
-
 ```
 
 `my_leagues` contains team info on all teams in certain leagues.
@@ -28,7 +27,26 @@ Data is not refreshed by the modelling functions, they need to be refreshed prio
 source("./models/predict-goal/gen_goal_model_data.R")
 source("./models/predict-goal/gen_goal_model_predictions.R")
 
-model_data <- gen_goal_model_data("./data")
-gen_goal_model_predictions(model_data)
+goal_model_data <- gen_goal_model_data("./data")
+gen_goal_model_predictions(goal_model_data) %>% 
+  filter(!finished)
+```
+
+```{r}
+source("./models/predict-assist/gen_assist_model_data.R")
+source("./models/predict-assist/gen_assist_model_predictions.R")
+
+assist_model_data <- gen_goal_model_data("./data")
+gen_goal_model_predictions(assist_model_data) %>% 
+  filter(!finished)
+```
+
+```{r}
+source("./models/predict-cs/gen_cs_model_data.R")
+source("./models/predict-cs/gen_cs_model_predictions.R")
+
+cs_model_data <- gen_cs_model_data("./data")
+gen_cs_model_predictions(cs_model_data) %>% 
+  filter(!finished)
 ```
 

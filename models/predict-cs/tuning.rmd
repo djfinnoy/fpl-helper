@@ -1,0 +1,107 @@
+```{r}
+library(tidyverse)
+library(lubridate)
+library(mlr)
+library(mlrHyperopt)
+library(xgboost)
+```
+
+# Gen model data
+```{r}
+source("./gen_cs_model_data.R")
+model_data <- gen_cs_model_data() %>% 
+  filter(finished)
+```
+
+
+# `mlr` task and validation strategy
+```{r}
+train <- which(model_data$kickoff_time %>% year() < 2019)
+test <- which(model_data$kickoff_time %>% as.Date() %within% interval("2019-01-01", "2019-03-31"))
+validation <- which(model_data$kickoff_time %>% as.Date() >= "2019-04-01")
+
+# Blocking by team because of annoying CV errors when blocking by `player_code`,
+# not optimal, but probably good enough
+blocker <- factor(model_data$team)
+
+# Features
+features <- c(
+  "clean_sheet",
+  "was_home", "elo_strength_diff", "opponent_agg_goal_prob"
+)
+
+task_data <- model_data %>% 
+  select(features) %>% 
+  as.data.frame()
+
+task <- makeClassifTask(
+  data = task_data,
+  target = "clean_sheet",
+  positive = 1,
+  blocking = blocker
+)
+
+train_task <- subsetTask(task, train)
+test_task <- subsetTask(task, test)
+validation_task <- subsetTask(task, validation)
+```
+
+# Model tuning
+```{r}
+xgb_learner <- makeLearner(
+  "classif.xgboost",
+  predict.type = "prob",
+  eval_metric = "auc",
+  objective = "binary:logistic",
+  eta = 0.026,
+  nrounds = 247,
+  max_depth = 3,
+  colsample_bytree = 1,
+  min_child_weight = 7,
+  subsample = 1,
+  alpha = 4.33,
+  lambda = 4.59,
+  gamma = 6.25,
+  early_stopping_rounds = 19
+)
+
+autotune_config <- makeParConfig(
+  par.set = makeParamSet(
+    makeNumericParam("eta", -2, -0.8, trafo = function(x) 10 ^ x),
+    makeIntegerParam("nrounds", 20, 400)
+  )
+)
+
+autotune_res <- hyperopt(
+  task = train_task,
+  learner = xgb_learner,
+  par.config = autotune_config
+)
+
+autotuned_learner <- xgb_learner %>% 
+  setHyperPars(par.vals = autotune_res$x)
+
+cv_res <- resample(
+  learner = autotuned_learner,
+  #learner = xgb_learner,
+  task = train_task,
+  resampling = makeResampleDesc("CV", blocking.cv = T, predict = "both"),
+  measures = list(auc, setAggregation(auc, train.mean))
+)
+```
+
+# Check feature importance
+```{r}
+model <- train(xgb_learner, train_task)
+#model <- train(autotuned_learner, train_task)
+model %>% getFeatureImportance()
+```
+
+# Check validation scheme
+```{r}
+test_preds <- predict(model, test_task)
+performance(test_preds, measure = auc)
+model <- train(xgb_learner, subsetTask(task, c(train, test)))
+validation_preds <- predict(model, validation_task)
+performance(validation_preds, measure = auc)
+`

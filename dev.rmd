@@ -1,23 +1,4 @@
 ```{r}
 data_path <- "./data"
+
 ```
-
-```{r}
-source("./models/predict-goal/gen_goal_model_data.R")
-source("./models/predict-goal/gen_goal_model_predictions.R")
-
-model_data <- gen_goal_model_data("./data")
-gen_goal_model_predictions(model_data)
-```
-
-
-```{r}
-
-source("./models/predict-assist/gen_assist_model_data.R")
-source("./models/predict-assist/gen_assist_model_predictions.R")
-model_data <- gen_assist_model_data(data_path)
-
-model_data <- gen_assist_model_data("./data")
-gen_assist_model_predictions(model_data)
-```
-
